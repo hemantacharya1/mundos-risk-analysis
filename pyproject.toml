@@ -1,0 +1,20 @@
+[project]
+name = "mundos-risk-analysis"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "joblib>=1.5.1",
+    "openpyxl>=3.1.5",
+    "pandas>=2.3.1",
+    "pytest>=8.4.1",
+    "scikit-learn>=1.7.1",
+    "torch>=2.8.0",
+    "transformers>=4.55.2",
+    "matplotlib>=3.9.0",
+    "fastapi>=0.116.1",
+    "uvicorn>=0.35.0",
+    "numpy>=2.3.2",
+    "httpx>=0.28.1",
+]

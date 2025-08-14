@@ -1,0 +1,73 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Test & tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+
+# Editors / IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# Environment / secrets
+.env
+.env.*
+*.env
+
+# Logs & runtime
+*.log
+logs/
+
+# Generated artifacts & model outputs
+artifacts/
+mask_results.json
+infer_meta.json
+predictions*.csv
+synthetic_*.csv
+preds_test_pca*.csv
+preds_test_pca*.meta.json
+
+# Embeddings / sentiment intermediate feature files
+embeddings*.npz
+sentiment*.csv
+sentiment*.json
+
+# PCA & reduction artifacts
+*.npz
+*.npy
+pca_*_results.json
+*sentiment_std.components.npy
+*sentiment_std.variance.png
+
+# Model pickles (keep selected deployment models via negation rules below)
+*.pkl
+!best_pca_pipeline.pkl
+!best_pca_50_pipeline.pkl
+!best_pca_100_pipeline.pkl
+
+# Misc caches
+.cache/
+__pycache__/
+*.tmp
+*.bak
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Jupyter checkpoints (if notebooks added later)
+.ipynb_checkpoints/

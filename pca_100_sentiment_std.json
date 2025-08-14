@@ -1,0 +1,8 @@
+{
+  "embeddings_file": "embeddings.npz",
+  "sentiment_file": "sentiment.csv",
+  "output_file": "pca_100_sentiment_std.npz",
+  "n_components": 100,
+  "explained_variance_sum": 0.7639530301094055,
+  "standardized": true
+}
