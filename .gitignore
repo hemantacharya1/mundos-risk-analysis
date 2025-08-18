@@ -47,13 +47,6 @@ sentiment*.csv
 sentiment*.json
 
 
-# Diagrams & flowcharts
-flowcharts/*.png
-flowcharts/*.jpg
-flowcharts/*.jpeg
-flowcharts/*.svg
-flowcharts/model_flow_diagram.png
-
 # Model pickles (keep selected deployment models via negation rules below)
 *.pkl
 !best_pca_pipeline.pkl
