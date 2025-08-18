@@ -1,109 +1,153 @@
-## Mundos Risk Analysis
 
-Production-ready pipeline to transform raw conversational lead summaries into calibrated probabilities of interest stage (multi-class) using transformer embeddings, sentiment features, dimensionality reduction (PCA), and a FastAPI inference service.
 
----
-## 1. High-Level Flow
-1. Load & validate dataset (`load_leads.py`).
-2. Generate embeddings (`generate_embeddings.py`).
-3. Generate sentiment features (`sentiment_features.py`).
-4. Train calibrated PCA logistic pipelines over component sweep (`train_pca_pipeline.py`).
-5. Select & persist best pipeline pickle (`best_pca_pipeline*.pkl`).
-6. Serve model via FastAPI (`fastapi_backend/main.py`).
-7. Batch / ad‑hoc inference utilities (`inference.py`, `inference_pca_pipeline.py`).
+![Model Flow Diagram](flowcharts/model-flow-diagram.png)
 
----
-## 2. Current Folder Structure (key items only)
+# Mundos Risk Analysis: Multiclass Interest Prediction Pipeline
+
+
+## Model Names Used
+
+**Embeddings:**
+- `sentence-transformers/all-MiniLM-L6-v2` (HuggingFace)
+
+**Sentiment:**
+- `distilbert-base-uncased-finetuned-sst-2-english` (HuggingFace)
+
+## Overview & Rationale
+
+This project delivers a robust, production-ready pipeline for predicting customer interest stage (0=no_interest, 1=mild_interest, 2=strong_interest) from conversational lead summaries. It leverages:
+- Transformer-based text embeddings (**MiniLM**, see above)
+- Rich sentiment features (**DistilBERT SST-2**, see above; 7 engineered columns)
+- Dimensionality reduction (PCA, 95% variance)
+- Multinomial Logistic Regression (with grid search)
+- Unified pipeline artifact for reproducible inference
+- FastAPI backend for real-time serving
+
+**Why this approach?**
+- Embeddings capture nuanced semantic signals from both customer and agent summaries.
+- Sentiment features add interpretable emotional context, improving model discrimination.
+- PCA reduces dimensionality, improves generalization, and speeds up inference.
+- Logistic Regression is robust, interpretable, and well-calibrated for probability outputs.
+- Unified pipeline (scaler, PCA, model, metadata) ensures consistency between training and serving.
+
+## Achievements
+- Achieved macro ROC AUC (OvR): **0.9977** and macro F1: **0.9917** on held-out test data.
+- Model robust to feature drift (validated via masking and diagnostics).
+- End-to-end reproducibility: all steps, artifacts, and metrics are versioned.
+- FastAPI backend supports real-time prediction with full probability vector and metadata.
+- Modular design: easy to swap embedding models, sentiment logic, or add new features.
+- Comprehensive test suite for data integrity, feature logic, and pipeline correctness.
+
+## Folder Structure (Key Items)
 ```
 mundos_risk_analysis/
-├─ artifacts/                 # Timestamped baseline models & metrics JSON
+├─ interest_multiclass/       # Main multiclass pipeline (scripts, artifacts, README)
 ├─ fastapi_backend/           # Production inference backend (FastAPI)
-├─ flowcharts/                # (Diagrams / mermaid sources – optional)
-├─ interest_multiclass/       # Extended multiclass training experiments
+├─ artifacts/                 # Timestamped baseline models & metrics JSON
 ├─ tests/                     # Unit tests (data validation, pooling, PCA, etc.)
-├─ baseline_model.py          # Train baseline logistic model (no PCA sweep)
-├─ generate_embeddings.py     # Create MiniLM embeddings (customer + agent)
-├─ sentiment_features.py      # Build 2- or 7-d sentiment feature set
-├─ train_pca_pipeline.py      # Component sweep + calibration + best pipeline save
-├─ train_logreg_reduced.py    # Train logistic on pre-reduced feature sets
-├─ pca_reduce.py              # Manual PCA reduction & artifact generation
-├─ inference.py               # Generic inference using saved baseline model
-├─ inference_pca_pipeline.py  # Inference using unified PCA pipeline pickle
-├─ threshold_analysis.py      # Precision/recall/F1 grid & threshold export
-├─ masking_stress_test.py     # Robustness via token masking
-├─ model_diagnostics.py       # Leakage / coefficient / shuffle diagnostics
-├─ load_leads.py              # Load + integrity checks & hashing
-├─ show_classification_report.py # Convenience reporting utility
-├─ show_pca_pipeline_report.py   # PCA pipeline evaluation summary
-├─ PROJECT_OVERVIEW.md        # Deep-dive design & metrics document
-├─ README.md                  # (This file)
-├─ pyproject.toml             # Dependencies & build config (uv / PEP 621)
-└─ uv.lock                    # Locked dependency versions
+├─ flowcharts/                # Diagrams / mermaid sources
+├─ ... (other legacy scripts)
 ```
 
----
-## 3. Key Files & Purpose
-| File / Dir | Description |
-|------------|-------------|
-| `leads.csv` | Source labeled leads dataset. |
-| `generate_embeddings.py` | Produces concatenated MiniLM embeddings (768 dims). |
-| `sentiment_features.py` | Sentiment (signed + probs or 2-col variant). |
-| `train_pca_pipeline.py` | Fits scaler+PCA+logreg over component grid, calibrates, saves best. |
-| `best_pca_pipeline.pkl` | Unified pipeline (scaler, PCA, model, metadata). |
-| `baseline_model.py` | Simpler non-sweep baseline logistic training script. |
-| `pca_reduce.py` | One-off PCA artifact generation / plotting. |
-| `inference_pca_pipeline.py` | Batch inference using best PCA pipeline. |
-| `inference.py` | Inference for baseline models; auto-detects sentiment need. |
-| `threshold_analysis.py` | Computes metrics over probability thresholds. |
-| `model_diagnostics.py` | Leakage tests, token log-odds, nested CV. |
-| `masking_stress_test.py` | Removes top tokens to gauge reliance. |
-| `artifacts/` | Baseline model pickles + metrics timestamped. |
-| `fastapi_backend/` | REST API service (embedding + sentiment at runtime). |
-| `tests/` | Unit tests for data integrity & feature logic. |
-| `interest_multiclass/` | Experimental multiclass model variants. |
-| `PROJECT_OVERVIEW.md` | Extended documentation & analysis. |
+## End-to-End Workflow (Recommended)
 
----
-## 4. Quick Start (PowerShell)
+### 1. Data Validation
+Check schema and label integrity:
 ```powershell
-# Install dependencies
-uv sync
-
-#############################################
-# OPTION A (Preferred): interest_multiclass #
-#############################################
-# 1. Validate data (creates data_integrity_report.json)
 uv run python interest_multiclass/data_validation.py
+```
+Output: `interest_multiclass/data_integrity_report.json`
 
-# 2. Generate embeddings (customer + agent concatenated arrays)
+
+### 2. Embedding Generation
+Create customer and agent embeddings using **MiniLM**:
+```powershell
 uv run python interest_multiclass/generate_embeddings_interest.py --data leads_1.csv
+```
+Output: `interest_multiclass/embeddings_interest.npz`
 
-# 3. (Optional but recommended) Sentiment features (7-col rich block; add --signed-only for 3-col light block)
+### 3. Sentiment Feature Generation (Recommended)
+Add 7 engineered sentiment features using **DistilBERT SST-2**:
+```powershell
 uv run python interest_multiclass/generate_sentiment_interest.py
+```
+Output: `interest_multiclass/sentiment_interest.csv`
 
-# 4. Train multinomial LogisticRegression with StandardScaler + PCA (95% variance) + small param search
+### 4. Model Training (Logistic Regression + PCA)
+Train with standardization, PCA (95% variance), and grid search:
+```powershell
 uv run python interest_multiclass/train_logreg.py --standardize --search --pca --pca-variance 0.95
-#   Artifacts: interest_multiclass/artifacts/logreg_pipeline.pkl (+ metrics_logreg.json, pca_transform.pkl, etc.)
+```
+Artifacts:
+- `interest_multiclass/artifacts/logreg_pipeline.pkl` (unified pipeline)
+- `interest_multiclass/artifacts/metrics_logreg.json` (metrics)
+- `interest_multiclass/artifacts/pca_transform.pkl` (PCA object)
+- `interest_multiclass/artifacts/pca_variance.png` (variance plot)
 
-# 5. Batch inference using trained multiclass pipeline
+### 5. Batch Inference
+Generate predictions for new leads:
+```powershell
 uv run python interest_multiclass/inference.py --model interest_multiclass/artifacts/logreg_pipeline.pkl --input leads_1.csv --output predictions_interest.csv
+```
+Output: `predictions_interest.csv` (includes predicted_stage and probability columns)
 
-#############################################
-# OPTION B (Legacy baseline sweep + calibration)
-#############################################
-# Generate baseline embeddings & sentiment (shared scripts)
-uv run python generate_embeddings.py --output embeddings.npz
-uv run python sentiment_features.py --output sentiment.csv
+### 6. Real-Time Serving (FastAPI)
+Start backend for live predictions:
+```powershell
+uv run uvicorn fastapi_backend.main:app --host 0.0.0.0 --port 8000 --reload
+```
+Health check:
+```powershell
+curl http://localhost:8000/health
+```
+Predict (example):
+```powershell
+curl -X POST http://localhost:8000/predict -H "Content-Type: application/json" -d '{"customer_summary":"Customer asked about pricing tiers","agent_summary":"Agent explained premium plan and scheduled a follow-up"}'
+```
 
-# Train PCA component sweep with calibration; saves best_pca_pipeline.pkl
-uv run python train_pca_pipeline.py --embeddings embeddings.npz --sentiment sentiment.csv --components 10,40,50,100 --standardize --calibrate sigmoid --save-best best_pca_pipeline.pkl --results pca_sweep_results.json
-
-# Batch inference for legacy pipeline
-uv run python inference_pca_pipeline.py --pipeline best_pca_pipeline.pkl --embeddings embeddings.npz --sentiment sentiment.csv --output predictions_interest.csv
-
-# (Either option) Run test suite
+### 7. Testing
+Run all unit tests:
+```powershell
 uv run python -m pytest -q
 ```
+
+## Detailed Notes & Tips
+- **Feature order:** Embeddings and sentiment features are concatenated before scaling and PCA (matches training pipeline).
+- **Artifacts:** All model, scaler, PCA, and metrics are saved for reproducibility.
+**Environment variables:**
+	- `MODEL_PATH`: Path to pipeline pickle (default: `fastapi_backend/best_interest_pipeline_1.pkl`)
+	- `EMB_MODEL`: Embedding model name (default: `sentence-transformers/all-MiniLM-L6-v2`)
+	- `SENT_MODEL`: Sentiment model name (default: `distilbert-base-uncased-finetuned-sst-2-english`)
+	- `SKIP_SENTIMENT_MODEL`: Set to `1` to disable sentiment features at runtime
+	- `USE_GPU`: Set to `1` to prefer CUDA
+	- `INTEREST_CLASS_NAMES`: Override class label mapping
+	- `FORCE_SENTIMENT_WIDTH`: Force sentiment width (2 or 7) if metadata absent
+- **Metrics:**
+	- Macro ROC AUC (OvR): 0.9977
+	- Macro F1: 0.9917
+	- Weighted F1: 0.9918
+	- Log Loss: 0.059
+	- Per-class precision/recall/f1, confusion matrix, PCA variance plot
+- **Achievements:**
+	- High accuracy and calibration on multiclass interest prediction
+	- Modular, extensible, and reproducible pipeline
+	- FastAPI backend for real-time scoring
+	- Full test coverage for data, features, and model logic
+
+## Why This Flow?
+- **Semantic + Sentiment Fusion:** Combining transformer embeddings with engineered sentiment features captures both deep semantic and emotional signals, improving model accuracy and interpretability.
+- **Dimensionality Reduction:** PCA ensures the model is efficient, less prone to overfitting, and easier to serve in production.
+- **Unified Pipeline:** Saving scaler, PCA, and model together guarantees that inference matches training exactly, eliminating feature drift and deployment bugs.
+- **Modular Design:** Each step is scriptable, testable, and replaceable—future upgrades (e.g., new embedding models, calibration, drift monitoring) are easy to add.
+
+## Extending & Next Steps
+- Add drift monitoring, SHAP explanations, or batch prediction endpoints.
+- Integrate calibration (isotonic/sigmoid) if further probability refinement needed.
+- Add model registry/version manifest for artifact governance.
+- Expand test suite for API regression and integration.
+
+---
+For deeper methodology, metrics, and design rationale, see `interest_multiclass/README.md` and `PROJECT_OVERVIEW.md`.
 
 ---
 ## 5. Serving the Model

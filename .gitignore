@@ -46,12 +46,13 @@ embeddings*.npz
 sentiment*.csv
 sentiment*.json
 
-# PCA & reduction artifacts
-*.npz
-*.npy
-pca_*_results.json
-*sentiment_std.components.npy
-*sentiment_std.variance.png
+
+# Diagrams & flowcharts
+flowcharts/*.png
+flowcharts/*.jpg
+flowcharts/*.jpeg
+flowcharts/*.svg
+flowcharts/model_flow_diagram.png
 
 # Model pickles (keep selected deployment models via negation rules below)
 *.pkl

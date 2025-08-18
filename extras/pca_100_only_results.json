@@ -1,0 +1,23 @@
+{
+  "results": [
+    {
+      "n_components": 100,
+      "variance_sum": 0.771572470664978,
+      "test_auc": 0.999816338524831,
+      "brier": 0.003727533734512203,
+      "feature_dim": 107,
+      "calibrated": true,
+      "sentiment_dim": 7
+    }
+  ],
+  "best": {
+    "n_components": 100,
+    "variance_sum": 0.771572470664978,
+    "test_auc": 0.999816338524831,
+    "brier": 0.003727533734512203,
+    "feature_dim": 107,
+    "calibrated": true,
+    "sentiment_dim": 7
+  },
+  "tolerance": 0.001
+}
