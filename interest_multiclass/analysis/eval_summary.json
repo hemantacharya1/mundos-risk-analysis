@@ -1,0 +1,12 @@
+{
+  "confusion_matrix_file": "confusion_matrix.png",
+  "roc_file": "roc_ovr.png",
+  "classes": [
+    "no_interest",
+    "mild_interest",
+    "strong_interest"
+  ],
+  "n_samples": 7300,
+  "pca_used": true,
+  "feature_dim": 58
+}

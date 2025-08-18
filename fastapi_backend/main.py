@@ -3,6 +3,7 @@ import pickle
 from functools import lru_cache
 from typing import Optional, Dict, Any
 import warnings
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -17,7 +18,8 @@ except Exception:  # pragma: no cover
 # -----------------------------
 # Config / ENV
 # -----------------------------
-MODEL_PATH = os.getenv("MODEL_PATH", "best_interest_pipeline_1.pkl")
+# Default model filename (must always be used per requirement). This file should contain the latest PCA logistic pipeline.
+MODEL_PATH_RAW = os.getenv("MODEL_PATH", "fastapi_backend/best_interest_pipeline_1.pkl")
 EMB_MODEL_NAME = os.getenv("EMB_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 SENT_MODEL_NAME = os.getenv("SENT_MODEL", "distilbert-base-uncased-finetuned-sst-2-english")
 SKIP_SENTIMENT = os.getenv("SKIP_SENTIMENT_MODEL", "0") == "1"
@@ -31,31 +33,100 @@ device = torch.device("cuda" if (PREFER_GPU and torch.cuda.is_available()) else 
 # -----------------------------
 # Lazy loaders
 # -----------------------------
+def _resolve_model_path() -> str:
+    """Resolve model path robustly whether server started from repo root or fastapi_backend folder.
+
+    Resolution order:
+      1. If env provided absolute path -> use directly.
+      2. If relative path exists as given (cwd based) -> use.
+      3. Try relative to project root (parent of this file's directory) -> use if exists.
+      4. Try walking up two parents.
+      5. Final: raise FileNotFoundError with attempted candidates listed.
+    """
+    raw = MODEL_PATH_RAW
+    attempted = []
+    # Absolute path
+    if os.path.isabs(raw):
+        if os.path.isfile(raw):
+            return raw
+        attempted.append(raw)
+    else:
+        # As given (current working directory)
+        if os.path.isfile(raw):
+            return raw
+        attempted.append(os.path.abspath(raw))
+        # Relative to repo root (parent directory of this file)
+        this_dir = Path(__file__).resolve().parent
+        repo_root = this_dir.parent  # fastapi_backend/ -> project root
+        candidate = repo_root / raw
+        if candidate.is_file():
+            return str(candidate)
+        attempted.append(str(candidate))
+        # One more level up just in case
+        candidate2 = repo_root.parent / raw
+        if candidate2.is_file():
+            return str(candidate2)
+        attempted.append(str(candidate2))
+    raise FileNotFoundError(
+        f"Model file not found. Provided path='{raw}'. Tried: " + "; ".join(attempted) + ". Set MODEL_PATH env to a valid absolute path."
+    )
+
+
 @lru_cache(maxsize=1)
 def load_pipeline():
-    if not os.path.isfile(MODEL_PATH):
-        raise FileNotFoundError(f"Model file '{MODEL_PATH}' not found.")
+    model_path = _resolve_model_path()
     load_error = None
     obj = None
-    # First attempt: pickle
+    # First attempt: pickle (also guard against obvious non-pickle files)
     try:
-        with open(MODEL_PATH, "rb") as f:
+        with open(model_path, "rb") as f:
+            head = f.read(2)
+            f.seek(0)
+            if head and head[0] != 0x80:
+                warnings.warn(
+                    f"File '{model_path}' does not start with pickle magic (0x80); attempting load anyway.",
+                    RuntimeWarning,
+                )
             obj = pickle.load(f)
     except Exception as e:
         load_error = e
-        # Try joblib if available
-        if joblib is not None:
-            try:
-                obj = joblib.load(MODEL_PATH)
-            except Exception as e2:  # still failing
+        fallback_candidates = [
+            # Prefer latest trained PCA logistic pipeline if available
+            "interest_multiclass/artifacts/logreg_pipeline.pkl",
+            "../interest_multiclass/artifacts/logreg_pipeline.pkl",
+        ]
+        loaded_fallback_path = None
+        for cand in fallback_candidates:
+            cand_path = Path(model_path).parent / cand if not os.path.isabs(cand) else Path(cand)
+            if cand_path.is_file():
+                try:
+                    with open(cand_path, "rb") as f2:
+                        obj = pickle.load(f2)
+                    loaded_fallback_path = str(cand_path.resolve())
+                    warnings.warn(
+                        f"Primary model file '{model_path}' could not be loaded ({e!r}). Fallback loaded from '{loaded_fallback_path}'. "
+                        "Consider updating or replacing the primary file with this artifact.",
+                        RuntimeWarning,
+                    )
+                    break
+                except Exception:
+                    continue
+        if obj is None:
+            # Try joblib last resort on primary file
+            if joblib is not None:
+                try:
+                    obj = joblib.load(model_path)
+                except Exception as e2:
+                    raise RuntimeError(
+                        f"Failed to load primary model '{model_path}'. Pickle error: {load_error}. Joblib error: {e2}."
+                    ) from e2
+            else:
                 raise RuntimeError(
-                    f"Failed to unpickle model file '{MODEL_PATH}'. Pickle error: {load_error}. Joblib error: {e2}. "
-                    "Verify the file is a valid sklearn pipeline or dict."
-                ) from e2
-        else:
-            raise RuntimeError(
-                f"Failed to unpickle model file '{MODEL_PATH}'. Error: {load_error}. Install joblib to try alternative loader."
-            ) from load_error
+                    f"Failed to load primary model '{model_path}'. Error: {load_error}. Install joblib for alternative loader."
+                ) from load_error
+        # Record fallback origin if used
+        if obj is not None and loaded_fallback_path:
+            obj["_fallback_source"] = loaded_fallback_path
     # Normalize to dict
     if isinstance(obj, dict):
         pass
@@ -73,6 +144,22 @@ def load_pipeline():
             f"Pipeline missing optional keys: {missing}. Proceeding with available 'model' only.",
             RuntimeWarning,
         )
+    # Augment metadata for convenience
+    pca = obj.get("pca")
+    if pca is not None and "n_components" not in obj:
+        try:
+            obj["n_components"] = int(getattr(pca, "n_components_", getattr(pca, "n_components", None)))
+        except Exception:  # pragma: no cover
+            pass
+    if "feature_dim" not in obj:
+        # derive from model if possible
+        try:
+            if hasattr(obj.get("model"), "n_features_in_"):
+                obj["feature_dim"] = int(getattr(obj.get("model"), "n_features_in_"))
+        except Exception:  # pragma: no cover
+            pass
+    # Attach resolved path for downstream endpoints
+    obj["_resolved_model_path"] = model_path
     return obj
 
 
@@ -122,96 +209,70 @@ def sentiment_score(text: str) -> float:
 
 
 def build_feature_vector(cust_text: str, agent_text: str, sentiment_used: bool) -> np.ndarray:
-    cust_emb = embed(cust_text)
-    agent_emb = embed(agent_text)
-    combined = np.concatenate([cust_emb, agent_emb], axis=0).reshape(1, -1)
+    """Construct feature vector replicating training order:
+        (embeddings [+ sentiment]) -> scaler -> PCA.
+    Previously sentiment was appended AFTER PCA causing a mismatch for scaler expecting 775 features.
+    """
     pipe = load_pipeline()
     scaler = pipe.get("scaler")
     pca = pipe.get("pca")
-    model = pipe.get("model")
-    if scaler is not None:
-        combined = scaler.transform(combined)
-    if pca is not None:
-        feats = pca.transform(combined)
-    else:
-        feats = combined
-    # Dynamic inference: if sentiment_used flag not set but model expects wider feature vector
-    if not sentiment_used:
-        # Try to infer required width from model (sklearn estimator or Pipeline wrapped)
-        expected = None
-        try:
-            if hasattr(model, "n_features_in_"):
-                expected = int(getattr(model, "n_features_in_"))
-        except Exception:  # pragma: no cover
-            expected = None
-        base_width = feats.shape[1]
-        # If expected width indicates presence of sentiment columns (2 or 7) beyond embeddings/PCA components
-        if expected and expected > base_width:
-            diff = expected - base_width
-            if diff in (2, 7):
-                sentiment_used = True
-                if FORCE_SENTIMENT_WIDTH_ENV.isdigit() and int(FORCE_SENTIMENT_WIDTH_ENV) in (2, 7):
-                    diff = int(FORCE_SENTIMENT_WIDTH_ENV)
-            # If mismatch but FORCE_SENTIMENT_WIDTH provided, honor it
+    original_feature_dim = pipe.get("original_feature_dim")  # e.g. 775
+
+    # 1. Embeddings (customer + agent concatenated)
+    cust_emb = embed(cust_text)
+    agent_emb = embed(agent_text)
+    emb = np.concatenate([cust_emb, agent_emb], axis=0)  # (768,)
+
+    # 2. Sentiment (if used). Determine width: if we have original_feature_dim then
+    #    sentiment_width = original_feature_dim - embedding_width (768)
+    sentiment_width = 0
+    if sentiment_used and not SKIP_SENTIMENT:
+        if original_feature_dim is not None:
+            sentiment_width = int(original_feature_dim) - emb.shape[0]
         elif FORCE_SENTIMENT_WIDTH_ENV.isdigit() and int(FORCE_SENTIMENT_WIDTH_ENV) in (2, 7):
-            diff = int(FORCE_SENTIMENT_WIDTH_ENV)
-            sentiment_used = True
-        else:
-            diff = 0
-        if not sentiment_used:
-            return feats
-        # Use diff as expected sentiment width (fallback 2)
-        expected_sent_cols = diff if diff in (2, 7) else 2
-    else:
-        # sentiment_used already True via metadata
-        expected_sent_cols = None  # will recompute below
-    # Infer sentiment dimension
-    if expected_sent_cols is None:
-        feature_dim = pipe.get("feature_dim")
-        n_components = pipe.get("n_components") if pca is not None else feats.shape[1]
-        if feature_dim is None:
-            if FORCE_SENTIMENT_WIDTH_ENV.isdigit() and int(FORCE_SENTIMENT_WIDTH_ENV) in (2, 7):
-                expected_sent_cols = int(FORCE_SENTIMENT_WIDTH_ENV)
-            else:
-                # Derive from model.n_features_in_ if available
-                expected_sent_cols = 2
-                try:
-                    if hasattr(model, "n_features_in_"):
-                        total = int(getattr(model, "n_features_in_"))
-                        base = feats.shape[1]
-                        if total - base in (2, 7):
-                            expected_sent_cols = total - base
-                except Exception:  # pragma: no cover
-                    pass
-        else:
-            expected_sent_cols = int(feature_dim) - int(n_components)
-    if expected_sent_cols not in (2, 7):
-        expected_sent_cols = 2  # safe fallback
-    if SKIP_SENTIMENT:
-        sent_arr = np.zeros((1, expected_sent_cols), dtype=np.float32)
-    else:
-        def _analyze(text: str):
-            out = load_sentiment_analyzer()
-            res = out(text)[0]
-            label = res.get("label", "POSITIVE").upper()
-            score = float(res.get("score", 0.5))
-            if label.startswith("NEG"):
-                signed = -score
-                p_pos = 1 - score
-                p_neg = score
-            else:
-                signed = score
-                p_pos = score
-                p_neg = 1 - score
-            return signed, p_pos, p_neg
-        if expected_sent_cols == 2:
-            sent_arr = np.array([[sentiment_score(cust_text), sentiment_score(agent_text)]], dtype=np.float32)
-        else:
+            sentiment_width = int(FORCE_SENTIMENT_WIDTH_ENV)
+        else:  # fallback default
+            sentiment_width = 7
+        # Build sentiment features
+        if sentiment_width == 2:
+            sent_arr = np.array([
+                sentiment_score(cust_text),
+                sentiment_score(agent_text),
+            ], dtype=np.float32)
+        else:  # rich 7-dim engineer
+            def _analyze(text: str):
+                out = load_sentiment_analyzer()
+                res = out(text)[0]
+                label = res.get("label", "POSITIVE").upper()
+                score = float(res.get("score", 0.5))
+                if label.startswith("NEG"):
+                    signed = -score
+                    p_pos = 1 - score
+                    p_neg = score
+                else:
+                    signed = score
+                    p_pos = score
+                    p_neg = 1 - score
+                return signed, p_pos, p_neg
             c_signed, c_p_pos, c_p_neg = _analyze(cust_text)
             a_signed, a_p_pos, a_p_neg = _analyze(agent_text)
             gap = a_signed - c_signed
-            sent_arr = np.array([[c_signed, a_signed, c_p_pos, c_p_neg, a_p_pos, a_p_neg, gap]], dtype=np.float32)
-    return np.concatenate([feats, sent_arr], axis=1)
+            sent_arr = np.array([c_signed, a_signed, c_p_pos, c_p_neg, a_p_pos, a_p_neg, gap], dtype=np.float32)
+        features = np.concatenate([emb, sent_arr], axis=0)
+    else:
+        features = emb
+
+    features = features.reshape(1, -1)
+
+    # 3. Scale (if present)
+    if scaler is not None:
+        features = scaler.transform(features)
+
+    # 4. PCA (if present)
+    if pca is not None:
+        features = pca.transform(features)
+
+    return features
 
 
 # -----------------------------
@@ -247,11 +308,17 @@ def health():
         readable.append({"class": key, "label": class_map.get(key, key)})
     return {
         "status": "ok",
-        "model_file": os.path.basename(MODEL_PATH),
+    "model_file": os.path.basename(pipe.get("_resolved_model_path", MODEL_PATH_RAW)),
+    "fallback_source": pipe.get("_fallback_source"),
         "device": str(device),
         "embedding_model": EMB_MODEL_NAME,
         "sentiment_model": None if SKIP_SENTIMENT else SENT_MODEL_NAME,
         "classes": readable,
+    "pca_used": bool(pipe.get("pca") is not None),
+    "n_components": pipe.get("n_components"),
+    "feature_dim": pipe.get("feature_dim"),
+    "original_feature_dim": pipe.get("original_feature_dim"),
+    "sentiment_used": pipe.get("sentiment_used"),
     }
 
 
@@ -271,17 +338,51 @@ def predict(data: LeadData, top_k: int = Query(3, ge=1, le=10)):
         prob_entries.append({"class": key, "label": class_map.get(key, key), "prob": float(p)})
     prob_entries_sorted = sorted(prob_entries, key=lambda d: d["prob"], reverse=True)
     best = prob_entries_sorted[0]
-    return {
+    # Infer / fill missing metadata on the fly
+    algorithm = pipe.get("algorithm") or type(model).__name__
+    feature_dim = pipe.get("feature_dim")
+    if feature_dim is None and hasattr(model, "n_features_in_"):
+        feature_dim = int(getattr(model, "n_features_in_"))
+    pca_obj = pipe.get("pca")
+    n_components = pipe.get("n_components")
+    if pca_obj is not None and n_components is None:
+        try:
+            n_components = int(getattr(pca_obj, "n_components_", getattr(pca_obj, "n_components", None)))
+        except Exception:  # pragma: no cover
+            pass
+    original_feature_dim = pipe.get("original_feature_dim")
+    if original_feature_dim is None and pca_obj is not None and feature_dim and n_components:
+        # Attempt reconstruction: original pre-sentiment + sentiment width
+        sent_width = 0
+        if sentiment_used:
+            # sentiment width is difference between total feature dim and PCA components
+            try:
+                sent_width = feature_dim - n_components
+            except Exception:  # pragma: no cover
+                sent_width = 0
+        try:
+            # Number of embedding (pre-PCA) features is pca_obj.n_features_ if available
+            pre_pca = getattr(pca_obj, "n_features_", None)
+            if pre_pca is not None:
+                original_feature_dim = int(pre_pca) + sent_width
+        except Exception:  # pragma: no cover
+            pass
+    response = {
         "predicted_class": best["class"],
         "predicted_label": best["label"],
-        "top": prob_entries_sorted[: top_k],
-        "all_probabilities": prob_entries_sorted,
-        "model_file": os.path.basename(MODEL_PATH),
-        "n_components": pipe.get("n_components"),
-        "variance_sum": pipe.get("variance_sum"),
+        "predicted_prob": best["prob"],
+        "probabilities": prob_entries_sorted[: top_k],  # sorted desc, limited to top_k
+    "model_file": os.path.basename(pipe.get("_resolved_model_path", MODEL_PATH_RAW)),
+    "fallback_source": pipe.get("_fallback_source"),
+        "pca_used": bool(pca_obj is not None),
+        "n_components": n_components,
+        "feature_dim": feature_dim,
+        "original_feature_dim": original_feature_dim,
         "sentiment_used": sentiment_used,
         "calibrated": bool(pipe.get("calibrated", False)),
+        "algorithm": algorithm,
     }
+    return response
 
 
 if __name__ == "__main__":  # pragma: no cover
