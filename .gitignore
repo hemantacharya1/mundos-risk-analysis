@@ -57,7 +57,7 @@ pca_*_results.json
 *.pkl
 !best_pca_pipeline.pkl
 !best_pca_50_pipeline.pkl
-!best_pca_100_pipeline.pkl
+best_pca_100_pipeline.pkl
 
 # Misc caches
 .cache/

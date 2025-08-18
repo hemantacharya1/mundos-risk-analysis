@@ -1,0 +1,13 @@
+{
+  "model": "interest_multiclass\\artifacts\\logreg_pipeline.pkl",
+  "input": "leads_1.csv",
+  "output": "predictions_interest.csv",
+  "rows": 7300,
+  "feature_dim": 58,
+  "classes": [
+    0,
+    1,
+    2
+  ],
+  "sentiment_used": true
+}

@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from transformers import AutoTokenizer, AutoModel, pipeline as hf_pipeline
 
 # ---- Configuration defaults ----
-DEFAULT_MODEL_PATH = Path(os.environ.get("MODEL_PATH", "../best_pca_pipeline.pkl"))
+DEFAULT_MODEL_PATH = Path(os.environ.get("MODEL_PATH", "../best_interest_pipeline_1.pkl"))
 EMB_MODEL_NAME = os.environ.get("EMB_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 SENT_MODEL_NAME = os.environ.get("SENT_MODEL", "distilbert-base-uncased-finetuned-sst-2-english")
 PREFER_GPU = os.environ.get("USE_GPU", "0") == "1"

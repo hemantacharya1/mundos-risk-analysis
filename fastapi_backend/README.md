@@ -1,12 +1,12 @@
-## Lead Scoring FastAPI Backend
+## Interest Stage FastAPI Backend
 
-Lightweight inference service for the calibrated PCA + LogisticRegression lead conversion model.
+Multiclass interest stage inference service for PCA + LogisticRegression pipeline (0 / 1 / 2 classes).
 
 ### 🔧 Endpoints
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | /health | Liveness + model metadata |
-| POST | /predict | Score a single (customer_summary, agent_summary) pair |
+| POST | /predict | Score a single (customer_summary, agent_summary) pair (multiclass probs) |
 
 ### 🧾 Request / Response
 POST /predict JSON body:
@@ -16,33 +16,38 @@ POST /predict JSON body:
   "agent_summary": "Offered Saturday 10am slot and sent booking link."
 }
 ```
-Optional query param: `threshold` (default 0.5) to produce binary label.
-
-Sample response:
+Sample response (truncated):
 ```json
 {
-  "conversion_probability": 0.8734,
-  "prediction": 1,
-  "threshold": 0.5,
-  "model_file": "best_pca_pipeline.pkl",
-  "n_components": 10,
-  "variance_sum": 0.3308,
+  "predicted_class": "2",
+  "predicted_label": "strong_interest",
+  "top": [
+    {"class": "2", "label": "strong_interest", "prob": 0.87},
+    {"class": "1", "label": "mild_interest", "prob": 0.11},
+    {"class": "0", "label": "no_interest", "prob": 0.02}
+  ],
+  "pca_used": true,
+  "n_components": 58,
+  "feature_dim": 58,
+  "original_feature_dim": 1543,
   "sentiment_used": true,
-  "calibrated": true
+  "algorithm": "LogisticRegression"
 }
 ```
 
 ### ⚙️ Environment Variables
 | Name | Default | Description |
 |------|---------|-------------|
-| MODEL_PATH | best_pca_pipeline.pkl | Path to saved pipeline dict |
+| MODEL_PATH | best_interest_pipeline_1.pkl | Path to saved pipeline dict |
 | EMB_MODEL | sentence-transformers/all-MiniLM-L6-v2 | HuggingFace embedding model |
 | SENT_MODEL | distilbert-base-uncased-finetuned-sst-2-english | Sentiment model (SST-2) |
 | SKIP_SENTIMENT_MODEL | 0 | If 1, skip loading sentiment model (fills zeros) |
+| INTEREST_CLASS_NAMES | 0:no_interest,1:mild_interest,2:strong_interest | Override class label mapping |
+| FORCE_SENTIMENT_WIDTH | (blank) | Force sentiment feature width (2 or 7) if auto-detect fails |
 | USE_GPU | 0 | If 1 and CUDA available, run models on GPU |
 
 ### 📦 Expected Pipeline Pickle Keys
-`{ scaler, pca, model, n_components, variance_sum, sentiment_used, feature_dim, calibrated }`
+`{ model, scaler, pca, original_feature_dim, feature_dim, n_components, sentiment_used, algorithm }`
 
 `feature_dim = n_components + (# sentiment columns)`; backend infers 2 vs 7.
 
@@ -62,14 +67,14 @@ curl http://127.0.0.1:8000/health
 
 ### 🧪 Example Prediction (curl)
 ```bash
-curl -s -X POST "http://127.0.0.1:8000/predict?threshold=0.55" \
+curl -s -X POST "http://127.0.0.1:8000/predict" \
   -H "Content-Type: application/json" \
   -d '{"customer_summary":"Asked about whitening, wants Saturday appointment.","agent_summary":"Offered Saturday 10am slot and sent booking link."}' | jq
 ```
 
 PowerShell (escaping quotes):
 ```powershell
-curl -Method POST "http://127.0.0.1:8000/predict?threshold=0.55" -Body '{"customer_summary":"Needs implant consult","agent_summary":"Provided pricing tiers and offered free x-ray."}' -ContentType 'application/json'
+curl -Method POST "http://127.0.0.1:8000/predict" -Body '{"customer_summary":"Needs implant consult","agent_summary":"Provided pricing tiers and offered free x-ray."}' -ContentType 'application/json'
 ```
 
 ### 🔄 Inference Flow
@@ -82,7 +87,7 @@ sequenceDiagram
   Client->>API: POST /predict JSON
   API->>HF: Embed customer, agent
   HF-->>API: 2 vectors
-  API->>Pipe: scale + PCA
+  API->>Pipe: scale + PCA (if present)
   API->>HF: (optional) sentiment
   API: concatenate features
   API->>Pipe: model.predict_proba
@@ -118,7 +123,7 @@ Batch prediction endpoint • Multi-pipeline selection (10/50/100 comps) • Mod
 ```json
 GET /health -> {
   "status":"ok",
-  "model_file":"best_pca_pipeline.pkl",
+  "model_file":"logreg_pipeline.pkl",
   "device":"cpu",
   "embedding_model":"sentence-transformers/all-MiniLM-L6-v2",
   "sentiment_model":"distilbert-base-uncased-finetuned-sst-2-english"

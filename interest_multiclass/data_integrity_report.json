@@ -1,0 +1,24 @@
+{
+  "rows": 7300,
+  "columns": 4,
+  "checks": {
+    "missing_required_columns": [],
+    "null_counts": {
+      "customer_summary": 0,
+      "agent_summary": 0,
+      "stage": 0
+    },
+    "unique_labels_found": [
+      0,
+      1,
+      2
+    ],
+    "unexpected_labels": [],
+    "label_counts": {
+      "2": 2495,
+      "0": 2468,
+      "1": 2337
+    },
+    "low_count_labels": {}
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "total_components_saved": 58,
+  "cumulative_variance_final": 0.9515468829777092,
+  "components_for_90pct": 42,
+  "components_for_95pct": 58,
+  "components_for_99pct": 59,
+  "chosen_components": 58,
+  "top_component_variances": [
+    0.104823,
+    0.070704,
+    0.061761,
+    0.051933,
+    0.047837,
+    0.044731,
+    0.03855,
+    0.035862,
+    0.034771,
+    0.031632
+  ],
+  "top_cumulative": [
+    0.104823,
+    0.175527,
+    0.237288,
+    0.28922,
+    0.337058,
+    0.381789,
+    0.420339,
+    0.456201,
+    0.490972,
+    0.522604
+  ]
+}
