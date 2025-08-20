@@ -144,7 +144,7 @@ uv run python -m pytest -q
 - Add drift monitoring, SHAP explanations, or batch prediction endpoints.
 - Integrate calibration (isotonic/sigmoid) if further probability refinement needed.
 - Add model registry/version manifest for artifact governance.
-- Expand test suite for API regression and integration.
+- Expand test suite for the API regression and integration.
 
 ---
 For deeper methodology, metrics, and design rationale, see `interest_multiclass/README.md` and `PROJECT_OVERVIEW.md`.
